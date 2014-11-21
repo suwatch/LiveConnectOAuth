@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Configuration;
 using System.Globalization;
 using System.IO;
 using System.Net;
@@ -21,12 +22,12 @@ namespace LiveConnectOAuth.Modules
 
         public static string LiveConnectClientId
         {
-            get { return Environment.GetEnvironmentVariable("LiveConnectClientId"); }
+            get { return ConfigurationManager.AppSettings["LiveConnectClientId"]; }
         }
 
         public static string LiveConnectClientSecret
         {
-            get { return Environment.GetEnvironmentVariable("LiveConnectClientSecret"); }
+            get { return ConfigurationManager.AppSettings["LiveConnectClientSecret"]; }
         }
 
         public void Init(HttpApplication context)
@@ -62,8 +63,8 @@ namespace LiveConnectOAuth.Modules
             }
 
             string redirectUri;
-            var user = AuthenticateUser(application, out redirectUri);
-            if (user == null)
+            var token = AuthenticateUser(application, out redirectUri);
+            if (token == null)
             {
                 redirectUri = redirectUri ?? GetLoginUrl(application);
             }
@@ -74,7 +75,7 @@ namespace LiveConnectOAuth.Modules
                 return;
             }
 
-            var principal = user.ToClaimsPrincipal();
+            var principal = token.GetPrincipal();
             HttpContext.Current.User = principal;
             Thread.CurrentPrincipal = principal;
         }
@@ -117,18 +118,18 @@ namespace LiveConnectOAuth.Modules
         }
 
         // NOTE: secure the cookie
-        public static byte[] EncryptAndSignCookie(LiveUser user)
+        public static byte[] EncryptAndSignCookie(LiveOAuthToken token)
         {
-            return user.ToBytes();
+            return token.ToBytes();
         }
 
         // NOTE: secure the cookie
-        public static LiveUser DecryptAndVerifySignatureCookie(byte[] bytes)
+        public static LiveOAuthToken DecryptAndVerifySignatureCookie(byte[] bytes)
         {
-            return LiveUser.FromBytes(bytes);
+            return LiveOAuthToken.FromBytes(bytes);
         }
 
-        public static LiveUser AuthenticateUser(HttpApplication application, out string redirectUri)
+        public static LiveOAuthToken AuthenticateUser(HttpApplication application, out string redirectUri)
         {
             redirectUri = null;
 
@@ -170,13 +171,12 @@ namespace LiveConnectOAuth.Modules
                 using (var stream = webResponse.GetResponseStream())
                 {
                     var token = LiveOAuthToken.FromStream(stream);
-                    var user = LiveUser.GetUser(token);
 
-                    WriteSessionCookie(application, user);
+                    WriteSessionCookie(application, token);
 
                     redirectUri = request.QueryString["state"];
 
-                    return user;
+                    return token;
                 }
             }
             catch (WebException ex)
@@ -185,7 +185,7 @@ namespace LiveConnectOAuth.Modules
             }
         }
 
-        public static LiveUser ReadSessionCookie(HttpApplication application)
+        public static LiveOAuthToken ReadSessionCookie(HttpApplication application)
         {
             var request = application.Context.Request;
 
@@ -217,23 +217,23 @@ namespace LiveConnectOAuth.Modules
             }
 
             var bytes = Convert.FromBase64String(strb.ToString());
-            var user = DecryptAndVerifySignatureCookie(bytes);
-            if (!user.IsValid())
+            var token = DecryptAndVerifySignatureCookie(bytes);
+            if (!token.IsValid())
             {
                 RemoveSessionCookie(application);
 
                 return null;
             }
 
-            return user;
+            return token;
         }
 
-        public static void WriteSessionCookie(HttpApplication application, LiveUser user)
+        public static void WriteSessionCookie(HttpApplication application, LiveOAuthToken token)
         {
             var request = application.Context.Request;
             var response = application.Context.Response;
 
-            var bytes = EncryptAndSignCookie(user);
+            var bytes = EncryptAndSignCookie(token);
             var cookie = Convert.ToBase64String(bytes);
             var chunkCount = cookie.Length / CookieChunkSize + (cookie.Length % CookieChunkSize == 0 ? 0 : 1);
             for (int i = 0; i < chunkCount; ++i)

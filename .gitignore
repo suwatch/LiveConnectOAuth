@@ -6,4 +6,5 @@
 packages/*
 App_Data/
 msbuild.log
-nuget.exe
+web.config
+web.Debug.config
