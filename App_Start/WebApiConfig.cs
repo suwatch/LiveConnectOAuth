@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Web.Http;
 
-namespace EmptyWebApi
+namespace LiveConnectOAuth
 {
     public static class WebApiConfig
     {
