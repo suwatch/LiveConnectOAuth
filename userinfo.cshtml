@@ -1,9 +1,12 @@
 ﻿@using System.Configuration
 @using System.Collections
-@using System.Security.Claims;
+@using System.Security.Claims
 
 @{
     var context = new HttpContextWrapper(HttpContext.Current);
+    var liveEnabled = !String.IsNullOrEmpty(ConfigurationManager.AppSettings["LiveConnectClientId"])
+        && !String.IsNullOrEmpty(ConfigurationManager.AppSettings["LiveConnectClientSecret"]);
+    var hostName = context.Request.Url.Host;        
 }
 
 <style>
@@ -37,7 +40,32 @@ table tr:nth-child(odd) {
 }
 </style>
 
-@if (context.User != null && context.User.Identity != null && context.User.Identity.IsAuthenticated)
+@if (!liveEnabled)
+{
+    <h4>LiveConnect settings are not configured for your site!</h4>
+    <ol>
+      <li>Goto <a href="https://manage.windowsazure.com/" target="blank">Azure Portal</a>.</li>
+      <li>Navigate to your site <strong>CONFIGURE</strong> tab.</li>
+      <li>Add the following keys to <strong>AppSettings</strong> section.    Their values are available at <a href="https://account.live.com/developers/applications" target="blank">Live application</a> App settings tab.
+        <ul>
+          <li>LiveConnectClientId</li>
+          <li>LiveConnectClientSecret</li>
+        </ul>    
+      </li>
+    </ol>
+    <p/>    
+    <h4>Add Redirect URLs to Live application!</h4>
+    <ol>
+      <li>Go to <a href="https://account.live.com/developers/applications" target="blank">Live application</a> Api settings tab.</li>
+      <li>Add the below URLs as <strong>Redirect URLs</strong>.
+        <ul>
+          <li>@String.Format("http://{0}/login/callback", hostName)</li>
+          <li>@String.Format("http://{0}/logout/complete", hostName)</li>
+        </ul>    
+      </li>
+    </ol>    
+}
+else if (context.User != null && context.User.Identity != null && context.User.Identity.IsAuthenticated)
 {
     <h4>User Information (<a href="/logout">logout</a>)</h4>
     <table id="userInfo">

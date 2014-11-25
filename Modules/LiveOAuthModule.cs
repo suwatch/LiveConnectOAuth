@@ -1,6 +1,8 @@
 ﻿using System;
 using System.Configuration;
 using System.Globalization;
+using System.IdentityModel;
+using System.IdentityModel.Services;
 using System.IO;
 using System.Net;
 using System.Text;
@@ -20,6 +22,12 @@ namespace LiveConnectOAuth.Modules
         public const string LogoutPath = "/logout";
         public const string LogoutCompletePath = "/logout/complete";
 
+        public static readonly CookieTransform[] DefaultCookieTransforms = new CookieTransform[]
+        {
+	        new DeflateCookieTransform(),
+	        new MachineKeyTransform()
+        };
+
         public static string LiveConnectClientId
         {
             get { return ConfigurationManager.AppSettings["LiveConnectClientId"]; }
@@ -30,9 +38,17 @@ namespace LiveConnectOAuth.Modules
             get { return ConfigurationManager.AppSettings["LiveConnectClientSecret"]; }
         }
 
+        public bool Enabled
+        {
+            get { return !String.IsNullOrEmpty(LiveConnectClientId) && !String.IsNullOrEmpty(LiveConnectClientSecret); }
+        }
+
         public void Init(HttpApplication context)
         {
-            context.AuthenticateRequest += AuthenticateRequest;
+            if (Enabled)
+            {
+                context.AuthenticateRequest += AuthenticateRequest;
+            }
         }
 
         public void Dispose()
@@ -117,16 +133,31 @@ namespace LiveConnectOAuth.Modules
             return strb.ToString();
         }
 
-        // NOTE: secure the cookie
-        public static byte[] EncryptAndSignCookie(LiveOAuthToken token)
+        public static byte[] EncodeCookie(LiveOAuthToken token)
         {
-            return token.ToBytes();
+            var bytes = token.ToBytes();
+            for (int i = 0 ; i < DefaultCookieTransforms.Length; ++i)
+            {
+                bytes = DefaultCookieTransforms[i].Encode(bytes);
+            }
+            return bytes;
         }
 
-        // NOTE: secure the cookie
-        public static LiveOAuthToken DecryptAndVerifySignatureCookie(byte[] bytes)
+        public static LiveOAuthToken DecodeCookie(byte[] bytes)
         {
-            return LiveOAuthToken.FromBytes(bytes);
+            try
+            {
+                for (int i = DefaultCookieTransforms.Length - 1; i >= 0; --i)
+                {
+                    bytes = DefaultCookieTransforms[i].Decode(bytes);
+                }
+                return LiveOAuthToken.FromBytes(bytes);
+            }
+            catch (Exception)
+            {
+                // bad cookie
+                return null;
+            }
         }
 
         public static LiveOAuthToken AuthenticateUser(HttpApplication application, out string redirectUri)
@@ -217,8 +248,8 @@ namespace LiveConnectOAuth.Modules
             }
 
             var bytes = Convert.FromBase64String(strb.ToString());
-            var token = DecryptAndVerifySignatureCookie(bytes);
-            if (!token.IsValid())
+            var token = DecodeCookie(bytes);
+            if (token == null || !token.IsValid())
             {
                 RemoveSessionCookie(application);
 
@@ -233,7 +264,7 @@ namespace LiveConnectOAuth.Modules
             var request = application.Context.Request;
             var response = application.Context.Response;
 
-            var bytes = EncryptAndSignCookie(token);
+            var bytes = EncodeCookie(token);
             var cookie = Convert.ToBase64String(bytes);
             var chunkCount = cookie.Length / CookieChunkSize + (cookie.Length % CookieChunkSize == 0 ? 0 : 1);
             for (int i = 0; i < chunkCount; ++i)
